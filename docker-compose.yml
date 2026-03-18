@@ -1,0 +1,250 @@
+version: "3.9"
+
+networks:
+  bugbuster:
+    driver: bridge
+
+volumes:
+  order-db-data:
+  catalog-db-data:
+  payment-db-data:
+  redis-data:
+  rabbitmq-data:
+
+services:
+  # ─── DATABASES ─────────────────────────────────────────────
+  order-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: orders
+      POSTGRES_USER: orders_user
+      POSTGRES_PASSWORD: orders_pass
+    volumes:
+      - order-db-data:/var/lib/postgresql/data
+      - ./seed-data/orders.sql:/docker-entrypoint-initdb.d/01-seed.sql
+    ports:
+      - "5433:5432"
+    networks:
+      - bugbuster
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U orders_user -d orders"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  catalog-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: catalog
+      POSTGRES_USER: catalog_user
+      POSTGRES_PASSWORD: catalog_pass
+    volumes:
+      - catalog-db-data:/var/lib/postgresql/data
+      - ./seed-data/catalog.sql:/docker-entrypoint-initdb.d/01-seed.sql
+    ports:
+      - "5434:5432"
+    networks:
+      - bugbuster
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U catalog_user -d catalog"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  payment-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: payments
+      POSTGRES_USER: payments_user
+      POSTGRES_PASSWORD: payments_pass
+    volumes:
+      - payment-db-data:/var/lib/postgresql/data
+      - ./seed-data/payments.sql:/docker-entrypoint-initdb.d/01-seed.sql
+    ports:
+      - "5435:5432"
+    networks:
+      - bugbuster
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U payments_user -d payments"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ─── INFRASTRUCTURE ────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - bugbuster
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: bugbuster
+      RABBITMQ_DEFAULT_PASS: bugbuster
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    networks:
+      - bugbuster
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mock-api:
+    image: wiremock/wiremock:3.5.4
+    ports:
+      - "9099:8080"
+    volumes:
+      - ./services/mock-api/mappings:/home/wiremock/mappings
+    networks:
+      - bugbuster
+
+  mailhog:
+    image: mailhog/mailhog:v1.0.1
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+    networks:
+      - bugbuster
+
+  # ─── MICROSERVICES ─────────────────────────────────────────
+  api-gateway:
+    build: ./services/api-gateway
+    ports:
+      - "8888:80"
+    depends_on:
+      order-service:
+        condition: service_healthy
+      catalog-service:
+        condition: service_healthy
+      payment-service:
+        condition: service_healthy
+    networks:
+      - bugbuster
+
+  order-service:
+    build: ./services/order-service
+    environment:
+      PORT: "3001"
+      DATABASE_URL: "postgres://orders_user:orders_pass@order-db:5432/orders"
+      RABBITMQ_URL: "amqp://bugbuster:bugbuster@rabbitmq:5672"
+      CATALOG_SERVICE_URL: "http://catalog-service:3002"
+      PAYMENT_SERVICE_URL: "http://payment-service:3003"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318"
+      OTEL_SERVICE_NAME: "order-service"
+    ports:
+      - "3001:3001"
+    depends_on:
+      order-db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - bugbuster
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3001/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  catalog-service:
+    build: ./services/catalog-service
+    environment:
+      PORT: "3002"
+      DATABASE_URL: "postgres://catalog_user:catalog_pass@catalog-db:5432/catalog"
+      REDIS_URL: "redis://redis:6379"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318"
+      OTEL_SERVICE_NAME: "catalog-service"
+    ports:
+      - "3002:3002"
+    depends_on:
+      catalog-db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - bugbuster
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:3002/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  payment-service:
+    build: ./services/payment-service
+    environment:
+      PORT: "3003"
+      DATABASE_URL: "jdbc:postgresql://payment-db:5432/payments"
+      DB_USERNAME: "payments_user"
+      DB_PASSWORD: "payments_pass"
+      EXTERNAL_API_URL: "http://mock-api:8080"
+      RABBITMQ_HOST: "rabbitmq"
+      RABBITMQ_PORT: "5672"
+      RABBITMQ_USERNAME: "bugbuster"
+      RABBITMQ_PASSWORD: "bugbuster"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318"
+      OTEL_SERVICE_NAME: "payment-service"
+      SERVER_TOMCAT_THREADS_MAX: "200"
+      SERVER_PORT: "3003"
+    ports:
+      - "3003:3003"
+    depends_on:
+      payment-db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      mock-api:
+        condition: service_started
+    networks:
+      - bugbuster
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3003/actuator/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  notifier-service:
+    build: ./services/notifier-service
+    environment:
+      RABBITMQ_URL: "amqp://bugbuster:bugbuster@rabbitmq:5672"
+      SMTP_HOST: "mailhog"
+      SMTP_PORT: "1025"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318"
+      OTEL_SERVICE_NAME: "notifier-service"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      mailhog:
+        condition: service_started
+    networks:
+      - bugbuster
+
+  # ─── LOAD GENERATOR ───────────────────────────────────────
+  load-generator:
+    build: ./loadgen
+    environment:
+      TARGET_URL: "http://api-gateway:80"
+      RATE: "20"
+    depends_on:
+      api-gateway:
+        condition: service_started
+    networks:
+      - bugbuster
+    profiles:
+      - loadgen

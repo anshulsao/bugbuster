@@ -1,0 +1,193 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"log"
+	"net/smtp"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	amqp "github.com/rabbitmq/amqp091-go"
+)
+
+type Order struct {
+	ID         string  `json:"id"`
+	CustomerID string  `json:"customer_id"`
+	Email      string  `json:"email"`
+	ProductID  int     `json:"product_id"`
+	Quantity   int     `json:"quantity"`
+	Total      float64 `json:"total"`
+	Status     string  `json:"status"`
+	CreatedAt  string  `json:"created_at"`
+}
+
+type LogEntry struct {
+	Timestamp string `json:"timestamp"`
+	Level     string `json:"level"`
+	Message   string `json:"message"`
+	OrderID   string `json:"order_id,omitempty"`
+	Error     string `json:"error,omitempty"`
+}
+
+func logJSON(level, message, orderID, errMsg string) {
+	entry := LogEntry{
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+		Level:     level,
+		Message:   message,
+		OrderID:   orderID,
+		Error:     errMsg,
+	}
+	data, _ := json.Marshal(entry)
+	fmt.Println(string(data))
+}
+
+func getEnv(key, fallback string) string {
+	if val := os.Getenv(key); val != "" {
+		return val
+	}
+	return fallback
+}
+
+func sendEmailNotification(order Order, smtpHost, smtpPort string) error {
+	from := "bugbuster-notifier@localhost"
+	to := order.Email
+	if to == "" {
+		to = "customer@localhost"
+	}
+
+	subject := fmt.Sprintf("Order Confirmation - %s", order.ID)
+	body := fmt.Sprintf(
+		"Hello,\n\nYour order %s has been received.\n\nProduct ID: %d\nQuantity: %d\nTotal: $%.2f\nStatus: %s\n\nThank you for your purchase!",
+		order.ID, order.ProductID, order.Quantity, order.Total, order.Status,
+	)
+
+	msg := fmt.Sprintf("From: %s\r\nTo: %s\r\nSubject: %s\r\n\r\n%s", from, to, subject, body)
+
+	addr := fmt.Sprintf("%s:%s", smtpHost, smtpPort)
+	return smtp.SendMail(addr, nil, from, []string{to}, []byte(msg))
+}
+
+func main() {
+	rabbitmqURL := getEnv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/")
+	smtpHost := getEnv("SMTP_HOST", "localhost")
+	smtpPort := getEnv("SMTP_PORT", "1025")
+
+	logJSON("info", "Starting notifier service", "", "")
+
+	conn, err := amqp.Dial(rabbitmqURL)
+	if err != nil {
+		logJSON("fatal", "Failed to connect to RabbitMQ", "", err.Error())
+		log.Fatalf("Failed to connect to RabbitMQ: %v", err)
+	}
+	defer conn.Close()
+	logJSON("info", "Connected to RabbitMQ", "", "")
+
+	ch, err := conn.Channel()
+	if err != nil {
+		logJSON("fatal", "Failed to open channel", "", err.Error())
+		log.Fatalf("Failed to open channel: %v", err)
+	}
+	defer ch.Close()
+
+	err = ch.ExchangeDeclare(
+		"orders", // name
+		"topic",  // type
+		true,     // durable
+		false,    // auto-deleted
+		false,    // internal
+		false,    // no-wait
+		nil,      // arguments
+	)
+	if err != nil {
+		logJSON("fatal", "Failed to declare exchange", "", err.Error())
+		log.Fatalf("Failed to declare exchange: %v", err)
+	}
+
+	q, err := ch.QueueDeclare(
+		"notifier-queue", // name
+		true,             // durable
+		false,            // delete when unused
+		false,            // exclusive
+		false,            // no-wait
+		nil,              // arguments
+	)
+	if err != nil {
+		logJSON("fatal", "Failed to declare queue", "", err.Error())
+		log.Fatalf("Failed to declare queue: %v", err)
+	}
+
+	err = ch.QueueBind(
+		q.Name,          // queue name
+		"order.created", // routing key
+		"orders",        // exchange
+		false,
+		nil,
+	)
+	if err != nil {
+		logJSON("fatal", "Failed to bind queue", "", err.Error())
+		log.Fatalf("Failed to bind queue: %v", err)
+	}
+
+	msgs, err := ch.Consume(
+		q.Name, // queue
+		"",     // consumer
+		false,  // auto-ack
+		false,  // exclusive
+		false,  // no-local
+		false,  // no-wait
+		nil,    // args
+	)
+	if err != nil {
+		logJSON("fatal", "Failed to register consumer", "", err.Error())
+		log.Fatalf("Failed to register consumer: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
+
+	logJSON("info", "Waiting for messages on orders exchange (order.created)", "", "")
+
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case d, ok := <-msgs:
+				if !ok {
+					return
+				}
+
+				var order Order
+				if err := json.Unmarshal(d.Body, &order); err != nil {
+					logJSON("error", "Failed to parse order message", "", err.Error())
+					d.Nack(false, false)
+					continue
+				}
+
+				logJSON("info", "Received order, sending notification", order.ID, "")
+
+				if err := sendEmailNotification(order, smtpHost, smtpPort); err != nil {
+					logJSON("error", "Failed to send email notification", order.ID, err.Error())
+					d.Nack(false, true) // requeue on failure
+					continue
+				}
+
+				logJSON("info", "Email notification sent successfully", order.ID, "")
+				d.Ack(false)
+			}
+		}
+	}()
+
+	sig := <-sigCh
+	logJSON("info", fmt.Sprintf("Received signal %s, shutting down gracefully", sig), "", "")
+	cancel()
+
+	logJSON("info", "Notifier service stopped", "", "")
+}

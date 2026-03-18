@@ -1,0 +1,173 @@
+name: "Ghost Latency"
+level: 2
+estimated_time_minutes: 25
+
+incident:
+  alert: >
+    INCIDENT: Customers reporting slow page loads. API response times are 10x
+    normal. P99 latency > 5s across all endpoints. No recent deployments.
+    No error spikes in logs. CPU at 15%, memory at 40%.
+    "Everything looks fine but it's slow. What's going on?"
+  observation: >
+    CPU usage normal. Memory usage normal. No error logs. No OOM kills.
+    No disk pressure. No network packet drops. All containers running.
+    Database query times normal. Redis hit rate healthy.
+
+injection:
+  - type: env_var
+    target: payment-service
+    config:
+      SERVER_TOMCAT_THREADS_MAX: "2"
+      BUG_MODE: "slow_queue"
+
+expected_rca:
+  category: "resource-saturation"
+  keywords:
+    - "thread pool"
+    - "tomcat"
+    - "queue"
+    - "backlog"
+    - "saturation"
+    - "connection pool"
+  description: >
+    The payment-service has two misconfigurations working together:
+    SERVER_TOMCAT_THREADS_MAX=2 (severely undersized pool) combined with
+    SERVER_TOMCAT_ACCEPT_COUNT=1000 (huge backlog queue). When all 8
+    threads are busy with blocking external API calls (even a single concurrent request saturates the pool), new requests
+    pile up in the accept queue instead of being rejected. The server
+    never returns errors — it just gets slower and slower.
+    The proper fix: reduce accept-count so the server returns 503
+    fast (enabling load balancers to route elsewhere or trigger scaling)
+    AND increase thread pool to match expected concurrency.
+
+hints:
+  - cost: 50
+    text: >
+      The problem isn't in the application code or the database. Focus on
+      infrastructure-level resources. Try the USE method: for each resource,
+      check Utilization, Saturation, and Errors.
+  - cost: 50
+    text: >
+      Look at the web server layer. Spring Boot uses an embedded Tomcat server
+      with a configurable thread pool. What happens when all threads are busy?
+      Check the "Tomcat Thread Pool" panel in Grafana.
+  - cost: 50
+    text: >
+      The thread pool is undersized, but that alone wouldn't cause silent
+      slowness — normally excess requests would be rejected. Check the
+      server's accept queue configuration. A large accept-count means
+      the server silently absorbs more requests than it can process.
+  - cost: 50
+    text: >
+      Two fixes needed: (1) Increase SERVER_TOMCAT_THREADS_MAX to handle
+      expected concurrency, AND (2) reduce SERVER_TOMCAT_ACCEPT_COUNT so
+      the server returns 503 fast instead of silently queuing. Fail fast
+      is better than fail slow — it lets load balancers and autoscalers
+      react.
+
+explanation: |
+  ## What Happened
+
+  The payment-service had two misconfigurations working together:
+
+  1. SERVER_TOMCAT_THREADS_MAX=2 — severely undersized thread pool
+  2. SERVER_TOMCAT_ACCEPT_COUNT=1000 — massive TCP accept queue
+
+  When both threads are busy (each blocking on external API calls ~200ms),
+  new requests silently pile up in the 1000-deep accept queue. The server
+  never rejects anything — it just gets slower and slower.
+
+                Incoming Requests (20+ concurrent)
+                      |
+                      v
+           +-------------------+
+           |  TCP Accept Queue  |  accept-count = 1000
+           |  [998 slots free]  |  <-- requests wait here silently
+           +-------------------+
+                      |
+             (wait for a thread)     <-- THIS is where latency comes from
+                      |
+                      v
+           +-------------------+
+           | Tomcat Thread Pool |  max = 2
+           | [T1][T2]          |  <-- both busy calling external API
+           +-------------------+
+                      |
+                      v
+              Handle Request (~200ms actual work)
+
+  This is particularly insidious because:
+  - No errors in logs (requests aren't rejected, just delayed)
+  - Health checks pass (they only need 1 thread)
+  - CPU/memory look fine (threads are I/O-waiting, not computing)
+  - The server "looks healthy" to every check that doesn't measure saturation
+
+  ## How to Find It
+
+  Use the USE Method (Brendan Gregg): for every resource, check
+  Utilization, Saturation, and Errors.
+
+  | Resource       | Utilization    | Saturation          | Errors |
+  |----------------|----------------|---------------------|--------|
+  | CPU            | ~15% (normal)  | None                | None   |
+  | Memory         | ~40% (normal)  | None                | None   |
+  | Tomcat Threads | 100% (2/2)     | Queue depth growing | None   |
+  | DB Connections | Normal         | None                | None   |
+
+  Key insight: Saturation without Errors = silent queueing.
+
+  In Grafana, the "Tomcat Thread Pool" panel shows busy threads flat
+  at the max line. In Jaeger, traces show long gaps at span start —
+  that's queue wait time.
+
+  ## The Fix
+
+  Two changes needed:
+
+  1. Right-size the thread pool:
+     SERVER_TOMCAT_THREADS_MAX=200
+
+  2. Reduce accept queue (the real lesson):
+     SERVER_TOMCAT_ACCEPT_COUNT=20
+
+  With a small accept queue, overloaded servers return 503 immediately.
+  This enables load balancers to reroute, autoscalers to trigger, and
+  monitoring to alert on error rate. Fail fast > fail slow.
+
+  ## Key Takeaways
+
+  - Silent queueing is the hardest failure mode to debug
+  - The USE method is your best friend
+  - Fail fast > Fail slow — rejection is visible and actionable
+  - Config changes are deploys too
+
+war_story: |
+  This scenario is based on a real incident. In December 2016, we were
+  running a food delivery platform for a QSR chain. New Year's Eve
+  traffic hit — orders spiked 10x in 30 minutes.
+
+  The system didn't crash. It didn't throw errors. It just... hung.
+  Dashboards showed everything green. CPU fine. Memory fine. No 5xx
+  errors. But customers were staring at spinning loaders and orders
+  were timing out on the app side.
+
+  It took us 3 hours to find it. The Tomcat thread pool was exhausted,
+  and a massive accept queue was silently swallowing every request. The
+  server looked "healthy" to every health check while hundreds of
+  customers' orders sat in a TCP backlog going nowhere.
+
+  The fix took 2 minutes. The debugging took 3 hours. That's why this
+  scenario exists — so you can learn this in 25 minutes instead of
+  3 hours on New Year's Eve with angry customers and cold biryani.
+
+  Pro Tip: Set your thread pool max so that when all threads are busy,
+  CPU usage crosses your HPA threshold. That way autoscaling fires
+  BEFORE the queue builds up. Thread pool + HPA = best friends.
+
+validation:
+  - name: "Payment service responds under load"
+    command: "bash scenarios/ghost-latency/validate.sh"
+    expect: "exit_code == 0"
+  - name: "API gateway health check"
+    command: "curl -sf http://localhost:8888/health"
+    expect: "exit_code == 0"

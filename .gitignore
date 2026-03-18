@@ -1,0 +1,26 @@
+# Binary
+bugbuster
+bugbuster.exe
+
+# Session & leaderboard files
+.bugbuster-session.json
+.bugbuster-leaderboard.json
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+.docker/
+
+# Dependencies (built in containers)
+services/order-service/node_modules/
+services/payment-service/target/
+__pycache__/
+*.pyc

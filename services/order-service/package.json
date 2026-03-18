@@ -1,0 +1,22 @@
+{
+  "name": "order-service",
+  "version": "1.0.0",
+  "description": "BugBuster Order Service",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node -r ./src/tracing.js src/index.js",
+    "dev": "node --watch -r ./src/tracing.js src/index.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "pg": "^8.12.0",
+    "amqplib": "^0.10.4",
+    "axios": "^1.7.2",
+    "pino": "^9.2.0",
+    "@opentelemetry/api": "^1.9.0",
+    "@opentelemetry/sdk-node": "^0.52.1",
+    "@opentelemetry/auto-instrumentations-node": "^0.47.1",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.52.1",
+    "@opentelemetry/exporter-metrics-otlp-http": "^0.52.1"
+  }
+}

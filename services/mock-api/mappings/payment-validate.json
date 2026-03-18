@@ -1,0 +1,21 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "/api/validate-payment"
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "jsonBody": {
+      "status": "approved",
+      "reference": "PAY-{{randomValue type='UUID'}}"
+    },
+    "delayDistribution": {
+      "type": "uniform",
+      "lower": 100,
+      "upper": 300
+    }
+  }
+}

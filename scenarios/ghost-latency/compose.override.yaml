@@ -1,0 +1,23 @@
+version: "3.9"
+
+services:
+  payment-service:
+    environment:
+      SERVER_TOMCAT_THREADS_MAX: "2"
+      SERVER_TOMCAT_ACCEPT_COUNT: "1000"
+      BUG_MODE: "slow_queue"
+
+  scenario-traffic:
+    build: ./loadgen
+    environment:
+      TARGET_URL: "http://api-gateway:80"
+      RATE: "20"
+    depends_on:
+      api-gateway:
+        condition: service_started
+    networks:
+      - bugbuster
+    restart: unless-stopped
+
+networks:
+  bugbuster:

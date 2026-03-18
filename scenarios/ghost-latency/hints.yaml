@@ -1,0 +1,31 @@
+hints:
+  - id: 1
+    cost: 50
+    text: >
+      The problem isn't in the application code or the database. Focus on
+      infrastructure-level resources. Try the USE method: for each resource,
+      check Utilization, Saturation, and Errors.
+
+  - id: 2
+    cost: 50
+    text: >
+      Look at the web server layer. Spring Boot uses an embedded Tomcat server
+      with a configurable thread pool. What happens when all threads are busy?
+      Check the "Tomcat Thread Pool" panel in Grafana.
+
+  - id: 3
+    cost: 50
+    text: >
+      The thread pool is undersized, but that alone wouldn't cause silent
+      slowness — normally excess requests would be rejected. Check the
+      server's accept queue configuration. A large accept-count means
+      the server silently absorbs more requests than it can process.
+
+  - id: 4
+    cost: 50
+    text: >
+      Two fixes needed: (1) Increase SERVER_TOMCAT_THREADS_MAX to handle
+      expected concurrency, AND (2) reduce SERVER_TOMCAT_ACCEPT_COUNT so
+      the server returns 503 fast instead of silently queuing. Fail fast
+      is better than fail slow — it lets load balancers and autoscalers
+      react.
