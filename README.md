@@ -135,17 +135,6 @@ bugbuster leaderboard
     → scores your performance
 ```
 
-Each scenario lives in `scenarios/<name>/` and contains:
-
-| File | Purpose |
-|---|---|
-| `scenario.yaml` | Bug definition, expected RCA, metadata |
-| `incident.md` | The alert you see (like a real PagerDuty alert) |
-| `hints.yaml` | Progressive hints (each costs points) |
-| `solution.md` | Full explanation (shown after solve/give-up) |
-| `compose.override.yaml` | Injects the bug via Docker overrides |
-| `validate.sh` | Automated check that your fix actually works |
-
 ## Observability Stack
 
 Once a scenario is running, these tools are available:
@@ -160,16 +149,6 @@ Once a scenario is running, these tools are available:
 | MailHog | http://localhost:8025 | — |
 | API Gateway | http://localhost:8888 | — |
 
-## Scoring
-
-| Event | Points |
-|---|---|
-| Starting score | 1000 |
-| Each hint used | -50 |
-| Over estimated time | -10/min |
-| Wrong RCA category | no solve credit |
-| Validation fails | no solve credit |
-
 ## TUI Controls
 
 ```
@@ -181,7 +160,6 @@ Dashboard:
 
 Submit screen:
   j/k     Scroll results
-  s       See solution (on fail)
   r       Back to dashboard
   esc     Back
 
@@ -196,19 +174,7 @@ Hints screen:
 |---|---|---|---|
 | Ghost Latency | Medium | 25 min | Resource saturation, USE method, thread pool exhaustion |
 
-*More scenarios coming — contributions welcome!*
-
-## Contributing a Scenario
-
-1. Create `scenarios/<your-scenario>/`
-2. Define the bug in `compose.override.yaml` (env vars, resource limits, network rules)
-3. Write a realistic incident alert in `incident.md`
-4. Add 3-5 progressive hints in `hints.yaml`
-5. Document the full solution in `solution.md`
-6. Write `validate.sh` to verify the fix works
-7. Fill in `scenario.yaml` with metadata
-
-See `scenarios/ghost-latency/` as a reference implementation.
+*More scenarios coming soon.*
 
 ## AI Coach (Optional)
 
