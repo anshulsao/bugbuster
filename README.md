@@ -21,7 +21,7 @@ A fresher once asked: *"How will I learn if everything gets done in minutes?"* â
 
 BugBuster is a no-AI flight simulator for engineers. It spins up a production-like microservices stack (Node.js, Python, Java, Go, nginx) with real observability (Grafana, Jaeger, Prometheus, Loki), injects a real bug, and makes you find and fix it yourself. No copilot. No autocomplete. Just you, the logs, the traces, and the metrics.
 
-Because when production is on fire at 3 AM, muscle memory is what saves you â€” not a prompt.
+Because if you don't understand what's happening under the hood, you can't steer the AI that does it for you.
 
 ## Install
 
