@@ -58,8 +58,12 @@ func main() {
 		Short: "BugBuster - Incident Response Training Platform",
 		Long:  banner + "\n  Practice debugging real-world production incidents in safe Docker environments.",
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-			// Skip prereq check for help/completion
-			if cmd.Name() == "help" || cmd.Name() == "completion" {
+			// Only check Docker prereqs for commands that need it
+			needsDocker := map[string]bool{
+				"start": true, "stop": true, "submit": true,
+				"status": true, "bugbuster": true,
+			}
+			if !needsDocker[cmd.Name()] {
 				return nil
 			}
 			return checkPrerequisites()
