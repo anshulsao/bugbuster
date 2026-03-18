@@ -1,178 +1,218 @@
-# BugBuster - Microservices Debugging Playground
+# BugBuster
 
-> "You wouldn't train a pilot in a simulator that never crashes."
+> Practice debugging production incidents in safe Docker environments.
 
-BugBuster is an open-source, production-like microservices environment where engineers practice debugging real distributed systems problems — manually, with real observability tools, on their own laptop.
-
-## Why?
-
-Junior engineers learn debugging by struggling through incidents. Reading postmortems isn't enough — you need muscle memory. BugBuster creates safe, repeatable incidents with pre-built observability so engineers can practice the **USE method** (Utilization, Saturation, Errors) and systematic elimination.
-
-## Architecture
+BugBuster spins up a realistic microservices stack (Node.js, Python, Java, Go, nginx) with full observability (Grafana, Jaeger, Prometheus, Loki), injects a real bug, and challenges you to find and fix it.
 
 ```
-                    ┌──────────────────────────────┐
-                    │      BUGBUSTER CLI (Go)       │
-                    │  start / hint / submit / score│
-                    └──────────┬───────────────────┘
-                               │ orchestrates
-                    ┌──────────▼───────────────────┐
-                    │      DOCKER COMPOSE           │
-                    │                               │
-                    │  ┌─────────────────────────┐  │
-                    │  │     API GATEWAY (nginx)  │  │
-                    │  └────┬──────┬────────┬────┘  │
-                    │       │      │        │       │
-                    │  ┌────▼──┐ ┌─▼────┐ ┌─▼────┐ │
-                    │  │ ORDER │ │CATALOG│ │ PAY  │ │
-                    │  │ (Node)│ │ (Py)  │ │(Java)│ │
-                    │  └──┬────┘ └──┬────┘ └──┬───┘ │
-                    │     │   ┌─────┤         │     │
-                    │  ┌──▼───▼──┐ ┌▼─────┐ ┌─▼──┐ │
-                    │  │RabbitMQ │ │ Redis │ │Mock │ │
-                    │  └────┬────┘ └──────┘ │ API │ │
-                    │  ┌────▼────┐          └────┘  │
-                    │  │NOTIFIER │                   │
-                    │  │  (Go)   │                   │
-                    │  └─────────┘                   │
-                    │                               │
-                    │  ┌──────┐ ┌──────┐ ┌──────┐  │
-                    │  │ DB 1 │ │ DB 2 │ │ DB 3 │  │
-                    │  └──────┘ └──────┘ └──────┘  │
-                    │                               │
-                    │  ── OBSERVABILITY ──────────  │
-                    │  Jaeger │ Grafana+Loki │Prom  │
-                    └──────────────────────────────┘
+  ____              ____            _
+ | __ ) _   _  __ _| __ ) _   _ ___| |_ ___ _ __
+ |  _ \| | | |/ _` |  _ \| | | / __| __/ _ \ '__|
+ | |_) | |_| | (_| | |_) | |_| \__ \ ||  __/ |
+ |____/ \__,_|\__, |____/ \__,_|___/\__\___|_|
+              |___/
 ```
 
-## Services
+## Install
 
-| Service | Language | Port | Role |
-|---|---|---|---|
-| API Gateway | nginx | 8080 | Routing, request ID propagation |
-| Order Service | Node.js/Express | 3001 | Create/list orders, publishes to RabbitMQ |
-| Catalog Service | Python/FastAPI | 3002 | Product listing, Redis cache layer |
-| Payment Service | Java/Spring Boot | 3003 | Process payments, external API calls |
-| Notifier Service | Go | - | Queue consumer, sends email via SMTP |
+### Option 1: Download Binary (Recommended)
 
-## Observability
+Grab the latest release for your platform:
 
-| Tool | Port | Purpose |
-|---|---|---|
-| Grafana | 3000 | Dashboards (admin/bugbuster) |
-| Jaeger | 16686 | Distributed tracing |
-| Prometheus | 9091 | Metrics |
-| Loki | 3100 | Log aggregation |
-| RabbitMQ UI | 15672 | Queue management (bugbuster/bugbuster) |
-| MailHog | 8025 | Email viewer |
+```bash
+# macOS (Apple Silicon)
+curl -L https://github.com/anshulsao/bugbuster/releases/latest/download/bugbuster-darwin-arm64 -o bugbuster
+chmod +x bugbuster
+sudo mv bugbuster /usr/local/bin/
 
-## Quick Start
+# macOS (Intel)
+curl -L https://github.com/anshulsao/bugbuster/releases/latest/download/bugbuster-darwin-amd64 -o bugbuster
+chmod +x bugbuster
+sudo mv bugbuster /usr/local/bin/
+
+# Linux (x86_64)
+curl -L https://github.com/anshulsao/bugbuster/releases/latest/download/bugbuster-linux-amd64 -o bugbuster
+chmod +x bugbuster
+sudo mv bugbuster /usr/local/bin/
+
+# Linux (ARM64)
+curl -L https://github.com/anshulsao/bugbuster/releases/latest/download/bugbuster-linux-arm64 -o bugbuster
+chmod +x bugbuster
+sudo mv bugbuster /usr/local/bin/
+```
+
+### Option 2: Build from Source
+
+Requires **Go 1.22+**.
+
+```bash
+git clone https://github.com/anshulsao/bugbuster.git
+cd bugbuster
+go build -o bugbuster ./cmd/bugbuster
+sudo mv bugbuster /usr/local/bin/
+```
 
 ### Prerequisites
 
-- Docker & Docker Compose
-- Go 1.22+ (for building the CLI)
+BugBuster runs services in Docker. You need:
 
-### Install CLI
+- **Docker** (v20+) with **Docker Compose** v2
+- ~4 GB free RAM (for all containers)
+
+Verify Docker is running:
 
 ```bash
-cd bugbuster
-go build -o bugbuster ./cmd/bugbuster
+docker compose version
+# Docker Compose version v2.x.x
 ```
 
-### Start a Scenario
+## Quick Start
+
+```bash
+# Launch the interactive TUI
+bugbuster
+```
+
+This opens a terminal UI where you can browse scenarios, start environments, test APIs, get hints, and submit your root cause analysis — all from one screen.
+
+### CLI Mode (no TUI)
 
 ```bash
 # List available scenarios
-./bugbuster list
+bugbuster list
 
-# Start a scenario (boots all services + injects the bug)
-./bugbuster start ghost-latency
+# Start a scenario
+bugbuster start ghost-latency
 
-# You'll see an incident alert — now debug it!
-# Use Grafana (localhost:3000), Jaeger (localhost:16686), logs, etc.
+# Get a hint (costs points)
+bugbuster hint
 
-# Need a hint? (-50 points each)
-./bugbuster hint
+# Check session status
+bugbuster status
 
-# Check status
-./bugbuster status
+# Submit your RCA
+bugbuster submit
 
-# Found the root cause? Submit your answer
-./bugbuster submit
+# Tear down when done
+bugbuster stop
 
-# Done — tear down
-./bugbuster stop
-
-# Check your score
-./bugbuster leaderboard
+# View your scores
+bugbuster leaderboard
 ```
 
-### Run Healthy (no bug)
+## How It Works
 
-```bash
-# Just boot the healthy system to explore
-docker compose up -d --build
-docker compose -f docker-compose.observability.yml up -d
-
-# Enable load generator for live dashboards
-docker compose --profile loadgen up -d
+```
+  You run bugbuster start <scenario>
+           │
+           ▼
+  ┌─────────────────────────────┐
+  │  Docker Compose brings up:  │
+  │                             │
+  │  nginx ─► order (Node.js)   │
+  │       ─► catalog (Python)   │
+  │       ─► payment (Java)     │
+  │       ─► notifier (Go)      │
+  │                             │
+  │  + Redis, RabbitMQ, DBs     │
+  │  + Grafana, Jaeger, Prom    │
+  │                             │
+  │  A bug is injected via      │
+  │  compose override + env vars│
+  └─────────────────────────────┘
+           │
+           ▼
+  You investigate using real
+  observability tools:
+    Grafana   → localhost:3000
+    Jaeger    → localhost:16686
+    Prometheus→ localhost:9091
+           │
+           ▼
+  bugbuster submit
+    → checks your RCA category
+    → runs validation scripts
+    → scores your performance
 ```
 
-## Scenarios
+Each scenario lives in `scenarios/<name>/` and contains:
 
-| Scenario | Level | Time | Category |
-|---|---|---|---|
-| Ghost Latency | 2 | 25 min | Resource Saturation |
+| File | Purpose |
+|---|---|
+| `scenario.yaml` | Bug definition, expected RCA, metadata |
+| `incident.md` | The alert you see (like a real PagerDuty alert) |
+| `hints.yaml` | Progressive hints (each costs points) |
+| `solution.md` | Full explanation (shown after solve/give-up) |
+| `compose.override.yaml` | Injects the bug via Docker overrides |
+| `validate.sh` | Automated check that your fix actually works |
 
-*More scenarios coming soon.*
+## Observability Stack
+
+Once a scenario is running, these tools are available:
+
+| Tool | URL | Credentials |
+|---|---|---|
+| Grafana | http://localhost:3000 | admin / bugbuster |
+| Jaeger | http://localhost:16686 | — |
+| Prometheus | http://localhost:9091 | — |
+| Loki (via Grafana) | http://localhost:3000 | — |
+| RabbitMQ | http://localhost:15672 | bugbuster / bugbuster |
+| MailHog | http://localhost:8025 | — |
+| API Gateway | http://localhost:8888 | — |
 
 ## Scoring
 
-- Start with **1000 points**
-- Each hint costs **50 points**
-- Time penalty: **10 points/minute** over estimated time
-- Correct RCA category: bonus points
-- Validation must pass (automated load test)
-
-## How Scenarios Work
-
-Each scenario is a directory under `scenarios/` containing:
-
-```
-scenarios/<name>/
-  scenario.yaml         # Bug definition + injection config
-  incident.md           # What you see (the alert)
-  hints.yaml            # Progressive hints (cost points)
-  solution.md           # Expected RCA (hidden until done)
-  compose.override.yaml # Docker Compose overrides (injects the bug)
-  validate.sh           # Automated verification
-```
-
-Bugs are injected via environment variables and Docker Compose overrides — no source code changes needed.
-
-## Contributing Scenarios
-
-1. Create a new directory under `scenarios/`
-2. Define the bug injection in `compose.override.yaml` (env vars, resource limits, etc.)
-3. Write a realistic incident report in `incident.md`
-4. Add progressive hints in `hints.yaml`
-5. Document the full solution in `solution.md`
-6. Write validation in `validate.sh`
-
-See `scenarios/ghost-latency/` as a reference.
-
-## Debugging Methodology: The USE Method
-
-For every resource (CPU, memory, thread pools, connection pools, queues, file descriptors):
-
-| Signal | Question |
+| Event | Points |
 |---|---|
-| **U**tilization | What percentage of the resource is in use? |
-| **S**aturation | Is there a queue/backlog waiting for this resource? |
-| **E**rrors | Are there errors related to this resource? |
+| Starting score | 1000 |
+| Each hint used | -50 |
+| Over estimated time | -10/min |
+| Wrong RCA category | no solve credit |
+| Validation fails | no solve credit |
 
-This is the systematic approach BugBuster teaches. Don't guess — measure.
+## TUI Controls
+
+```
+Dashboard:
+  1-7     Quick-select action
+  j/k     Navigate action list
+  enter   Select action
+  ctrl+c  Quit (tears down containers)
+
+Submit screen:
+  j/k     Scroll results
+  s       See solution (on fail)
+  r       Back to dashboard
+  esc     Back
+
+Hints screen:
+  enter   Reveal next hint
+  esc     Back
+```
+
+## Available Scenarios
+
+| Scenario | Level | Time | What You'll Learn |
+|---|---|---|---|
+| Ghost Latency | Medium | 25 min | Resource saturation, USE method, thread pool exhaustion |
+
+*More scenarios coming — contributions welcome!*
+
+## Contributing a Scenario
+
+1. Create `scenarios/<your-scenario>/`
+2. Define the bug in `compose.override.yaml` (env vars, resource limits, network rules)
+3. Write a realistic incident alert in `incident.md`
+4. Add 3-5 progressive hints in `hints.yaml`
+5. Document the full solution in `solution.md`
+6. Write `validate.sh` to verify the fix works
+7. Fill in `scenario.yaml` with metadata
+
+See `scenarios/ghost-latency/` as a reference implementation.
+
+## AI Coach (Optional)
+
+If you have [Claude Code](https://claude.ai/download) (`claude`) or [Gemini CLI](https://github.com/google-gemini/gemini-cli) (`gemini`) installed, BugBuster will automatically use it to evaluate your RCA submission and give personalized feedback after you solve a scenario.
 
 ## License
 
