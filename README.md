@@ -1,8 +1,6 @@
 # BugBuster
 
-> Practice debugging production incidents in safe Docker environments.
-
-BugBuster spins up a realistic microservices stack (Node.js, Python, Java, Go, nginx) with full observability (Grafana, Jaeger, Prometheus, Loki), injects a real bug, and challenges you to find and fix it.
+> "Pilots have every landing automated. Every single one. But young pilots are still made to land planes manually. Because when automation fails, someone needs to actually know how to fly."
 
 ```
   ____              ____            _
@@ -12,6 +10,18 @@ BugBuster spins up a realistic microservices stack (Node.js, Python, Java, Go, n
  |____/ \__,_|\__, |____/ \__,_|___/\__\___|_|
               |___/
 ```
+
+## Why
+
+We learned debugging by breaking things. By staring at a bug for 3 hours and finally getting it. By writing terrible code, shipping it, and cleaning up the mess. That cycle of fail, understand, improve — that's not inefficiency. That's the learning mechanism.
+
+AI shortcuts all of it.
+
+A fresher once asked: *"How will I learn if everything gets done in minutes?"* — and he's right. We're so busy making our teams faster that we might be forgetting to make them stronger.
+
+BugBuster is a no-AI flight simulator for engineers. It spins up a production-like microservices stack (Node.js, Python, Java, Go, nginx) with real observability (Grafana, Jaeger, Prometheus, Loki), injects a real bug, and makes you find and fix it yourself. No copilot. No autocomplete. Just you, the logs, the traces, and the metrics.
+
+Because when production is on fire at 3 AM, muscle memory is what saves you — not a prompt.
 
 ## Install
 
