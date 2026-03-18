@@ -1,7 +1,11 @@
 package tui
 
 import (
+	"fmt"
+	"strings"
+
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/facets-cloud/bugbuster/internal/docker"
 	"github.com/facets-cloud/bugbuster/internal/scenario"
@@ -27,6 +31,9 @@ type Model struct {
 	apiTester   APITesterModel
 	hints       HintsModel
 	submit      SubmitModel
+
+	// Prerequisite check
+	prereqErrors []string
 }
 
 // NewModel creates a Model starting at the home screen.
@@ -60,6 +67,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				_ = docker.Down(m.projectRoot, m.composeFiles)
 			}
 			return m, tea.Quit
+		}
+		// Dismiss prereq error overlay
+		if len(m.prereqErrors) > 0 && (msg.String() == "esc" || msg.String() == "q") {
+			m.prereqErrors = nil
+			return m, nil
 		}
 
 	case ScreenChangeMsg:
@@ -96,6 +108,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case ScenarioSelectedMsg:
 		m.scenario = msg.Scenario
+		m.prereqErrors = nil
+
+		// Check prerequisites before starting Docker
+		if issues := docker.CheckPrerequisites(); len(issues) > 0 {
+			m.prereqErrors = issues
+			return m, nil
+		}
+
 		// Create a new scoring session.
 		if err := scoring.NewSession(m.projectRoot, msg.Scenario.Dir); err != nil {
 			m.session = &scoring.Session{
@@ -138,6 +158,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // View renders the active screen.
 func (m Model) View() string {
+	if len(m.prereqErrors) > 0 {
+		return m.viewPrereqErrors()
+	}
+
 	switch m.screen {
 	case ScreenHome:
 		return m.home.View()
@@ -154,4 +178,26 @@ func (m Model) View() string {
 	default:
 		return "Unknown screen"
 	}
+}
+
+func (m Model) viewPrereqErrors() string {
+	var b strings.Builder
+
+	header := lipgloss.NewStyle().Bold(true).Foreground(ColorDanger).
+		Render("PREREQUISITES CHECK FAILED")
+	b.WriteString(header)
+	b.WriteString("\n\n")
+
+	for _, issue := range m.prereqErrors {
+		b.WriteString(fmt.Sprintf("  %s  %s\n",
+			StatusDownStyle.Render("[X]"),
+			issue))
+	}
+
+	b.WriteString("\n")
+	b.WriteString(KeyHelpStyle.Render("Install the prerequisites above and try again."))
+	b.WriteString("\n\n")
+	b.WriteString(KeyHelpStyle.Render("[esc] Back  [q] Quit"))
+
+	return b.String()
 }
