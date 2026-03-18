@@ -11,6 +11,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/facets-cloud/bugbuster/internal/docker"
 	"github.com/facets-cloud/bugbuster/internal/hints"
 	"github.com/facets-cloud/bugbuster/internal/scenario"
 	"github.com/facets-cloud/bugbuster/internal/scoring"
@@ -35,13 +36,15 @@ type dockerStreamMsg struct {
 // The startup model receives a dockerStreamMsg, then chains WaitForDockerLine calls.
 func StartDocker(projectRoot string, composeFiles []string) tea.Cmd {
 	return func() tea.Msg {
-		args := []string{"compose"}
+		base := docker.ComposeCommand()
+		var args []string
 		for _, f := range composeFiles {
 			args = append(args, "-f", f)
 		}
 		args = append(args, "up", "-d", "--build")
+		fullArgs := append(base[1:], args...)
 
-		cmd := exec.Command("docker", args...)
+		cmd := exec.Command(base[0], fullArgs...)
 		cmd.Dir = projectRoot
 
 		pr, pw := io.Pipe()
@@ -96,12 +99,14 @@ func WaitForDockerLine(lines <-chan string, errs <-chan error) tea.Cmd {
 // PollServices returns a command that runs docker compose ps --format json and reports status.
 func PollServices(projectRoot string, composeFiles []string) tea.Cmd {
 	return func() tea.Msg {
-		args := []string{"compose"}
+		base := docker.ComposeCommand()
+		var args []string
 		for _, f := range composeFiles {
 			args = append(args, "-f", f)
 		}
 		args = append(args, "ps", "--format", "json")
-		cmd := exec.Command("docker", args...)
+		fullArgs := append(base[1:], args...)
+		cmd := exec.Command(base[0], fullArgs...)
 		cmd.Dir = projectRoot
 		out, err := cmd.CombinedOutput()
 		if err != nil {

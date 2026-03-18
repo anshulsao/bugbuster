@@ -57,6 +57,13 @@ func main() {
 		Use:   "bugbuster",
 		Short: "BugBuster - Incident Response Training Platform",
 		Long:  banner + "\n  Practice debugging real-world production incidents in safe Docker environments.",
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			// Skip prereq check for help/completion
+			if cmd.Name() == "help" || cmd.Name() == "completion" {
+				return nil
+			}
+			return checkPrerequisites()
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			root, err := ensureWorkspace()
 			if err != nil {
@@ -552,4 +559,18 @@ func pointsColor(pts int) string {
 	default:
 		return Red
 	}
+}
+
+func checkPrerequisites() error {
+	issues := docker.CheckPrerequisites()
+	if len(issues) == 0 {
+		return nil
+	}
+
+	fmt.Printf("\n%s%s  PREREQUISITES CHECK FAILED  %s\n\n", Bold, BgRed, Reset)
+	for _, issue := range issues {
+		fmt.Printf("  %s%s[X]%s %s\n", Bold, Red, Reset, issue)
+	}
+	fmt.Printf("\n  %sInstall the prerequisites above and try again.%s\n\n", Dim, Reset)
+	return fmt.Errorf("prerequisites not met")
 }
